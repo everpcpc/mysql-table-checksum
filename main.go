@@ -57,6 +57,34 @@ func getMD5(URI, table string, step int, c chan [2]string) {
 		log.Fatalf("start transaction failed: %+v", err)
 	}
 	defer tx.Rollback()
+
+	var name, engine, version, rowFormat string
+	var rows uint64
+	var ignored *sql.RawBytes
+	values := make([]interface{}, 18)
+	for i := range values {
+		values[i] = &ignored
+	}
+	values[0] = &name
+	values[1] = &engine
+	values[2] = &version
+	values[3] = &rowFormat
+	values[4] = &rows
+	err = tx.QueryRow(`show table status like '` + table + `'`).Scan(values...)
+	switch {
+	case err == sql.ErrNoRows:
+		log.Fatalf("table %s not found", table)
+	case err != nil:
+		log.Fatalf("get table status failed: %+v", err)
+	}
+	log.Println(name, engine, version, rowFormat, rows)
+
+	c <- [2]string{"engine", engine}
+	c <- [2]string{"version", version}
+	c <- [2]string{"rowFormat", rowFormat}
+	// NOTE: sometimes not equeal?
+	// c <- [2]string{"rows", strconv.FormatUint(rows, 10)}
+
 	for {
 		// log.Printf("start at: %d, %+v", start, URI)
 		rows, err := tx.Query(selectSQL, start, start+step)
@@ -117,7 +145,11 @@ func compareMD5() {
 		}
 		if s[1] != t[1] {
 			// TODO:(everpcpc) check detailed difference
-			log.Fatalf("ERR: data mismatch at id=%s: source(%x) != target(%x)", s[0], s[1], t[1])
+			if _, err := strconv.ParseUint(s[0], 10, 0); err == nil {
+				log.Fatalf("ERR: data mismatch at id=%s: source(%x) != target(%x)", s[0], s[1], t[1])
+			} else {
+				log.Fatalf("ERR: status mismatch at %s: source(%+v) != target(%+v)", s[0], s[1], t[1])
+			}
 		}
 
 		// log.Printf("OK: data ok at id=%s: source(%x) = target(%x)", s[0], s[1], t[1])
