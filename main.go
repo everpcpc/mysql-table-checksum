@@ -24,7 +24,7 @@ func main() {
 	tgtURI := "root:@tcp(localhost:3306)/test"
 	srcTable := "xxx"
 	tgtTable := "xxxx"
-	step := 1
+	step := uint64(1)
 
 	go compareMD5()
 
@@ -34,12 +34,11 @@ func main() {
 	<-done
 }
 
-func getMD5(URI, table string, step int, c chan [2]string) {
+func getMD5(URI, table string, step uint64, c chan [2]string) {
 	var (
-		err      error
-		colNames []string
-		cnt      int
-		start    = 1
+		err          error
+		colNames     []string
+		start, maxID uint64
 
 		// FIXME:(everpcpc) get primary key from schema
 		// FIXME:(everpcpc) better range
@@ -77,14 +76,23 @@ func getMD5(URI, table string, step int, c chan [2]string) {
 	case err != nil:
 		log.Fatalf("get table status failed: %+v", err)
 	}
-	log.Println(name, engine, version, rowFormat, rows)
 
 	c <- [2]string{"engine", engine}
 	c <- [2]string{"version", version}
 	c <- [2]string{"rowFormat", rowFormat}
-	// NOTE: sometimes not equeal?
+	// NOTE: sometimes not equeal? use maxID instead
 	// c <- [2]string{"rows", strconv.FormatUint(rows, 10)}
 
+	err = tx.QueryRow(fmt.Sprintf(`select id from %s order by id desc limit 1`, table)).Scan(&maxID)
+	switch {
+	case err == sql.ErrNoRows:
+		log.Fatalf("table %s seems empty", table)
+	case err != nil:
+		log.Fatalf("get max id failed: %+v", err)
+	}
+	c <- [2]string{"maxID", strconv.FormatUint(maxID, 10)}
+
+	start = 1
 	for {
 		// log.Printf("start at: %d, %+v", start, URI)
 		rows, err := tx.Query(selectSQL, start, start+step)
@@ -99,9 +107,7 @@ func getMD5(URI, table string, step int, c chan [2]string) {
 		}
 
 		h := md5.New()
-		cnt = 0
 		for rows.Next() {
-			cnt++
 			cols := make([]interface{}, len(colNames))
 			raws := make([][]byte, len(colNames))
 			for i := range cols {
@@ -118,10 +124,9 @@ func getMD5(URI, table string, step int, c chan [2]string) {
 				}
 			}
 		}
-		c <- [2]string{strconv.Itoa(start), string(h.Sum(nil))}
-		if cnt < step {
+		c <- [2]string{strconv.FormatUint(start, 10), string(h.Sum(nil))}
+		if start+step > maxID {
 			// log.Printf("finished scan at: {%d}", start)
-			// FIXME:(everpcpc) better end
 			return
 		}
 		start += step
@@ -152,7 +157,7 @@ func compareMD5() {
 			}
 		}
 
-		// log.Printf("OK: data ok at id=%s: source(%x) = target(%x)", s[0], s[1], t[1])
+		// log.Printf("OK: data ok at id=%s: source(%x) === target(%x)", s[0], s[1], t[1])
 
 	}
 }
