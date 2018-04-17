@@ -42,6 +42,7 @@ func getMD5(URI, table string, step int, c chan [2]string) {
 		start    = 1
 
 		// FIXME:(everpcpc) get primary key from schema
+		// FIXME:(everpcpc) better range
 		selectSQL = fmt.Sprintf(`select * from %s where id>=? and id<?`, table)
 	)
 	defer close(c)
@@ -92,6 +93,7 @@ func getMD5(URI, table string, step int, c chan [2]string) {
 		c <- [2]string{strconv.Itoa(start), string(h.Sum(nil))}
 		if cnt < step {
 			// log.Printf("finished scan at: {%d}", start)
+			// FIXME:(everpcpc) better end
 			return
 		}
 		start += step
