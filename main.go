@@ -41,7 +41,6 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 		start, maxID uint64
 
 		// FIXME:(everpcpc) get primary key from schema
-		// FIXME:(everpcpc) better range
 		selectSQL = fmt.Sprintf(`select * from %s where id>=? and id<?`, table)
 	)
 	defer close(c)
@@ -80,7 +79,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	c <- [2]string{"engine", engine}
 	c <- [2]string{"version", version}
 	c <- [2]string{"rowFormat", rowFormat}
-	// NOTE: sometimes not equeal? use maxID instead
+	// NOTE: sometimes not accurate, use maxID instead
 	// c <- [2]string{"rows", strconv.FormatUint(rows, 10)}
 
 	err = tx.QueryRow(fmt.Sprintf(`select id from %s order by id desc limit 1`, table)).Scan(&maxID)
@@ -142,9 +141,6 @@ func compareMD5() {
 			done <- true
 			return
 		}
-
-		// log.Printf("OK: data ok at id=%s:%s: source(%x) = target(%x)", s[0], t[0], s[1], t[1])
-
 		if s[0] != t[0] {
 			log.Fatalf("ERR: sequence mismatch: source(%s) != target(%s)", s[0], t[0])
 		}
@@ -156,8 +152,6 @@ func compareMD5() {
 				log.Fatalf("ERR: status mismatch at %s: source(%+v) != target(%+v)", s[0], s[1], t[1])
 			}
 		}
-
-		// log.Printf("OK: data ok at id=%s: source(%x) === target(%x)", s[0], s[1], t[1])
-
+		// log.Printf("OK: data ok at id=%s:%s: source(%x) = target(%x)", s[0], t[0], s[1], t[1])
 	}
 }
