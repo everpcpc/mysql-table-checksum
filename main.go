@@ -15,57 +15,52 @@ var (
 	done           chan bool
 )
 
-type config struct {
-	srcDB *sql.DB
-	tgtDB *sql.DB
-}
-
 func main() {
 	done = make(chan bool)
-	source = make(chan [2]string, 5)
-	target = make(chan [2]string, 5)
+	source = make(chan [2]string)
+	target = make(chan [2]string)
 
 	srcURI := "root:@/test"
-	tgtURI := "root:@/test"
+	tgtURI := "root:@tcp(localhost:3306)/test"
 	srcTable := "xxx"
 	tgtTable := "xxxx"
 	step := 1
 
-	srcDB, err := sql.Open("mysql", srcURI)
-	if err != nil {
-		log.Fatalf("open db failed on %s: %+v", srcURI, err)
-	}
-	tgtDB, err := sql.Open("mysql", srcURI)
-	if err != nil {
-		log.Fatalf("open db failed on %s: %+v", tgtURI, err)
-	}
 	go compareMD5()
 
-	go getMD5(srcDB, srcTable, step, source)
-	go getMD5(tgtDB, tgtTable, step, target)
+	go getMD5(srcURI, srcTable, step, source)
+	go getMD5(tgtURI, tgtTable, step, target)
 
 	<-done
 }
 
-func getMD5(db *sql.DB, table string, step int, c chan [2]string) {
+func getMD5(URI, table string, step int, c chan [2]string) {
 	var (
 		err      error
-		start    = 1
 		colNames []string
+		cnt      int
+		start    = 1
+
+		// FIXME:(everpcpc) get primary key from schema
+		selectSQL = fmt.Sprintf(`select * from %s where id>=? and id<?`, table)
 	)
 	defer close(c)
+
+	db, err := sql.Open("mysql", URI)
+	if err != nil {
+		log.Fatalf("open db failed on %s: %+v", URI, err)
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
 		log.Fatalf("start transaction failed: %+v", err)
 	}
 	defer tx.Rollback()
-	sql := fmt.Sprintf(`select * from %s where id>=? and id<?`, table)
 	for {
-		log.Printf("start at: %d", start)
-		rows, err := tx.Query(sql, start, start+step)
+		// log.Printf("start at: %d, %+v", start, URI)
+		rows, err := tx.Query(selectSQL, start, start+step)
 		if err != nil {
-			log.Fatalf("select failed: {%s} %+v", sql, err)
+			log.Fatalf("select failed at {%d}: %+v", start, err)
 		}
 		if len(colNames) == 0 {
 			colNames, err = rows.Columns()
@@ -75,7 +70,7 @@ func getMD5(db *sql.DB, table string, step int, c chan [2]string) {
 		}
 
 		h := md5.New()
-		cnt := 0
+		cnt = 0
 		for rows.Next() {
 			cnt++
 			cols := make([]interface{}, len(colNames))
@@ -96,7 +91,7 @@ func getMD5(db *sql.DB, table string, step int, c chan [2]string) {
 		}
 		c <- [2]string{strconv.Itoa(start), string(h.Sum(nil))}
 		if cnt < step {
-			log.Printf("finished scan at: {%d}", start)
+			// log.Printf("finished scan at: {%d}", start)
 			return
 		}
 		start += step
@@ -107,17 +102,23 @@ func compareMD5() {
 	for {
 		s, more := <-source
 		t, _ := <-target
-		if s[0] != t[0] {
-			log.Fatalf("sequence mismatch: source(%s) != target(%s)", s[0], t[0])
-		}
-		if s[1] != t[1] {
-			// TODO:(everpcpc) check detailed difference
-			log.Fatalf("data mismatch at id=%s: source(%x) != target(%x)", s[0], s[1], t[1])
-		}
 		if !more {
-			log.Println("all done.")
+			log.Println("OK")
 			done <- true
 			return
 		}
+
+		// log.Printf("OK: data ok at id=%s:%s: source(%x) = target(%x)", s[0], t[0], s[1], t[1])
+
+		if s[0] != t[0] {
+			log.Fatalf("ERR: sequence mismatch: source(%s) != target(%s)", s[0], t[0])
+		}
+		if s[1] != t[1] {
+			// TODO:(everpcpc) check detailed difference
+			log.Fatalf("ERR: data mismatch at id=%s: source(%x) != target(%x)", s[0], s[1], t[1])
+		}
+
+		// log.Printf("OK: data ok at id=%s: source(%x) = target(%x)", s[0], s[1], t[1])
+
 	}
 }
