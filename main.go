@@ -1,10 +1,10 @@
 package main
 
 import (
-	"crypto/md5"
 	"database/sql"
 	"flag"
 	"fmt"
+	"hash/crc32"
 	"log"
 	"strconv"
 
@@ -42,7 +42,7 @@ func main() {
 		tgtTable = srcTable
 	}
 
-	go compareMD5()
+	go compare()
 
 	go getMD5(*srcURI, *srcTable, *step, source)
 	go getMD5(*tgtURI, *tgtTable, *step, target)
@@ -121,7 +121,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 			}
 		}
 
-		h := md5.New()
+		total := []byte{}
 		for rows.Next() {
 			cols := make([]interface{}, len(colNames))
 			raws := make([][]byte, len(colNames))
@@ -132,14 +132,12 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 			if err != nil {
 				log.Fatalf("scan failed: {%d} %+v", start, err)
 			}
+
 			for i := range cols {
-				_, err = h.Write(raws[i])
-				if err != nil {
-					log.Fatalf("write hash failed: {%d} %+v", start, err)
-				}
+				total = append(total, raws[i]...)
 			}
 		}
-		c <- [2]string{strconv.FormatUint(start, 10), string(h.Sum(nil))}
+		c <- [2]string{strconv.FormatUint(start, 10), strconv.FormatUint(uint64(crc32.ChecksumIEEE(total)), 10)}
 		if start+step > maxID {
 			// log.Printf("finished scan at: {%d}", start)
 			return
@@ -148,7 +146,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	}
 }
 
-func compareMD5() {
+func compare() {
 	for {
 		s, more := <-source
 		t, _ := <-target
@@ -163,11 +161,11 @@ func compareMD5() {
 		if s[1] != t[1] {
 			// TODO:(everpcpc) check detailed difference
 			if _, err := strconv.ParseUint(s[0], 10, 0); err == nil {
-				log.Fatalf("ERR: data mismatch at id=%s: source(%x) != target(%x)", s[0], s[1], t[1])
+				log.Fatalf("ERR: data mismatch at id=%s: source(%+v) != target(%+v)", s[0], s[1], t[1])
 			} else {
 				log.Fatalf("ERR: status mismatch at %s: source(%+v) != target(%+v)", s[0], s[1], t[1])
 			}
 		}
-		// log.Printf("OK: data ok at id=%s:%s: source(%x) = target(%x)", s[0], t[0], s[1], t[1])
+		// log.Printf("OK: data ok at id=%s:%s: source(%+v) = target(%+v)", s[0], t[0], s[1], t[1])
 	}
 }
