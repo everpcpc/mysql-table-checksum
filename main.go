@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/md5"
 	"database/sql"
+	"flag"
 	"fmt"
 	"log"
 	"strconv"
@@ -20,16 +21,31 @@ func main() {
 	source = make(chan [2]string)
 	target = make(chan [2]string)
 
-	srcURI := "root:@/test"
-	tgtURI := "root:@tcp(localhost:3306)/test"
-	srcTable := "xxx"
-	tgtTable := "xxxx"
-	step := uint64(1)
+	srcURI := flag.String("sourceURI", "root:@/test", "uri for source table")
+	tgtURI := flag.String("targetURI", "", "uri for target table, default same with sourceURI")
+	srcTable := flag.String("sourceTable", "", "table to check on source")
+	tgtTable := flag.String("targetTable", "", "table to check on target, default same with sourceTable")
+	step := flag.Uint64("step", 1, "step for batch check")
+	flag.Parse()
+
+	if *srcURI == "" {
+		log.Fatal("sourceURI required")
+	}
+	if *tgtURI == "" {
+		tgtURI = srcURI
+	}
+
+	if *srcTable == "" {
+		log.Fatal("sourceTable required")
+	}
+	if *tgtTable == "" {
+		tgtTable = srcTable
+	}
 
 	go compareMD5()
 
-	go getMD5(srcURI, srcTable, step, source)
-	go getMD5(tgtURI, tgtTable, step, target)
+	go getMD5(*srcURI, *srcTable, *step, source)
+	go getMD5(*tgtURI, *tgtTable, *step, target)
 
 	<-done
 }
