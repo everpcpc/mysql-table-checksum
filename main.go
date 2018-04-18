@@ -44,13 +44,13 @@ func main() {
 
 	go compare()
 
-	go getMD5(*srcURI, *srcTable, *step, source)
-	go getMD5(*tgtURI, *tgtTable, *step, target)
+	go getChecksum(*srcURI, *srcTable, *step, source)
+	go getChecksum(*tgtURI, *tgtTable, *step, target)
 
 	<-done
 }
 
-func getMD5(URI, table string, step uint64, c chan [2]string) {
+func getChecksum(URI, table string, step uint64, c chan [2]string) {
 	var (
 		err             error
 		colNames        []string
