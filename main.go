@@ -64,6 +64,11 @@ func getChecksum(URI, table string, step uint64, c chan [2]string) {
 	if err != nil {
 		log.Fatalf("open db failed on %s: %+v", URI, err)
 	}
+	db.SetMaxOpenConns(1)
+
+	if _, err = db.Exec(`set @@tx_isolation="REPEATABLE-READ"`); err != nil {
+		log.Fatalf("set transaction isolation level failed: %+v", err)
+	}
 
 	tx, err := db.Begin()
 	if err != nil {
