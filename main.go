@@ -25,7 +25,7 @@ func main() {
 	tgtURI := flag.String("targetURI", "", "uri for target table, default same with sourceURI")
 	srcTable := flag.String("sourceTable", "", "table to check on source")
 	tgtTable := flag.String("targetTable", "", "table to check on target, default same with sourceTable")
-	step := flag.Uint64("step", 1, "step for batch check")
+	step := flag.Uint64("step", 10, "step for batch check")
 	flag.Parse()
 
 	if *srcURI == "" {
@@ -52,12 +52,11 @@ func main() {
 
 func getMD5(URI, table string, step uint64, c chan [2]string) {
 	var (
-		err          error
-		colNames     []string
-		start, maxID uint64
-
-		// FIXME:(everpcpc) get primary key from schema
-		selectSQL = fmt.Sprintf(`select * from %s where id>=? and id<?`, table)
+		err             error
+		colNames        []string
+		offset, maxID   uint64
+		primaryKey      string
+		primaryKeyIndex int
 	)
 	defer close(c)
 
@@ -73,7 +72,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	defer tx.Rollback()
 
 	var name, engine, version, rowFormat string
-	var rows uint64
+	var rowCount uint64
 	var ignored *sql.RawBytes
 	values := make([]interface{}, 18)
 	for i := range values {
@@ -83,7 +82,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	values[1] = &engine
 	values[2] = &version
 	values[3] = &rowFormat
-	values[4] = &rows
+	values[4] = &rowCount
 	err = tx.QueryRow(`show table status like '` + table + `'`).Scan(values...)
 	switch {
 	case err == sql.ErrNoRows:
@@ -96,9 +95,24 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	c <- [2]string{"version", version}
 	c <- [2]string{"rowFormat", rowFormat}
 	// NOTE: sometimes not accurate, use maxID instead
-	// c <- [2]string{"rows", strconv.FormatUint(rows, 10)}
+	// c <- [2]string{"rowCount", strconv.FormatUint(rowCount, 10)}
 
-	err = tx.QueryRow(fmt.Sprintf(`select id from %s order by id desc limit 1`, table)).Scan(&maxID)
+	values = make([]interface{}, 13)
+	for i := range values {
+		values[i] = &ignored
+	}
+	values[4] = &primaryKey
+	err = tx.QueryRow(fmt.Sprintf(`show index from %s where Key_name="PRIMARY"`, table)).Scan(values...)
+	switch {
+	case err == sql.ErrNoRows:
+		log.Fatalf("table %s has no primary key", table)
+	case err != nil:
+		log.Fatalf("get primary key failed: %+v", err)
+	}
+	c <- [2]string{"primaryKey", primaryKey}
+	// log.Printf("primary key for %s is %s", table, primaryKey)
+
+	err = tx.QueryRow(fmt.Sprintf(`select %s from %s order by id desc limit 1`, primaryKey, table)).Scan(&maxID)
 	switch {
 	case err == sql.ErrNoRows:
 		log.Fatalf("table %s seems empty", table)
@@ -106,18 +120,26 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 		log.Fatalf("get max id failed: %+v", err)
 	}
 	c <- [2]string{"maxID", strconv.FormatUint(maxID, 10)}
+	// log.Printf("max id for %s is %d", table, maxID)
 
-	start = 1
+	offset = 1
+	// FIXME:(everpcpc) get primary key from schema
+	selectSQL := fmt.Sprintf(`select * from %s where %s>=? limit ?`, table, primaryKey)
 	for {
-		// log.Printf("start at: %d, %+v", start, URI)
-		rows, err := tx.Query(selectSQL, start, start+step)
+		// log.Printf("offset at: %d, %+v", offset, URI)
+		rows, err := tx.Query(selectSQL, offset, step)
 		if err != nil {
-			log.Fatalf("select failed at {%d}: %+v", start, err)
+			log.Fatalf("select failed at {%d}: %+v", offset, err)
 		}
 		if len(colNames) == 0 {
 			colNames, err = rows.Columns()
 			if err != nil {
-				panic(err)
+				log.Fatal(err)
+			}
+			for i := range colNames {
+				if colNames[i] == primaryKey {
+					primaryKeyIndex = i
+				}
 			}
 		}
 
@@ -130,19 +152,24 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 			}
 			err = rows.Scan(cols...)
 			if err != nil {
-				log.Fatalf("scan failed: {%d} %+v", start, err)
+				log.Fatalf("scan failed: {%d} %+v", offset, err)
 			}
 
 			for i := range cols {
 				total = append(total, raws[i]...)
+				// append to split colunmns
+				total = append(total, 0x00)
+			}
+			offset, err = strconv.ParseUint(string(raws[primaryKeyIndex]), 10, 0)
+			if err != nil {
+				log.Fatalf("get progress error: {%d} %+v", offset, err)
 			}
 		}
-		c <- [2]string{strconv.FormatUint(start, 10), strconv.FormatUint(uint64(crc32.ChecksumIEEE(total)), 10)}
-		if start+step > maxID {
-			// log.Printf("finished scan at: {%d}", start)
+		c <- [2]string{strconv.FormatUint(offset, 10), strconv.FormatUint(uint64(crc32.ChecksumIEEE(total)), 10)}
+		if offset == maxID {
+			log.Printf("finished scan %s at: {%d}", table, offset)
 			return
 		}
-		start += step
 	}
 }
 
