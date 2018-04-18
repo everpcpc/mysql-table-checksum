@@ -156,7 +156,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 
 			for i := range cols {
 				total = append(total, raws[i]...)
-				// append to split colunmns
+				// HACK: append to split colunmns
 				total = append(total, 0x00)
 			}
 			offset, err = strconv.ParseUint(string(raws[primaryKeyIndex]), 10, 0)
