@@ -31,12 +31,12 @@ func main() {
 	if *srcURI == "" {
 		log.Fatal("sourceURI required")
 	}
-	if *tgtURI == "" {
-		tgtURI = srcURI
-	}
-
 	if *srcTable == "" {
 		log.Fatal("sourceTable required")
+	}
+
+	if *tgtURI == "" {
+		tgtURI = srcURI
 	}
 	if *tgtTable == "" {
 		tgtTable = srcTable
