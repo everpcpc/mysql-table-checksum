@@ -123,7 +123,6 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	// log.Printf("max id for %s is %d", table, maxID)
 
 	offset = 1
-	// FIXME:(everpcpc) get primary key from schema
 	selectSQL := fmt.Sprintf(`select * from %s where %s>=? limit ?`, table, primaryKey)
 	for {
 		// log.Printf("offset at: %d, %+v", offset, URI)
