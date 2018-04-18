@@ -122,8 +122,7 @@ func getMD5(URI, table string, step uint64, c chan [2]string) {
 	c <- [2]string{"maxID", strconv.FormatUint(maxID, 10)}
 	// log.Printf("max id for %s is %d", table, maxID)
 
-	offset = 1
-	selectSQL := fmt.Sprintf(`select * from %s where %s>=? limit ?`, table, primaryKey)
+	selectSQL := fmt.Sprintf(`select * from %s where %s>? limit ?`, table, primaryKey)
 	for {
 		// log.Printf("offset at: %d, %+v", offset, URI)
 		rows, err := tx.Query(selectSQL, offset, step)
